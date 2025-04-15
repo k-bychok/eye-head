@@ -57,7 +57,6 @@ left_pupil_h = left_pupil_v = 0.5
 first_frame = True
 squares = []
 
-# Ссылка на второе окно и метки на нём
 second_window = None
 label_cam = None
 label_graph = None
@@ -65,16 +64,17 @@ label_tracker = None
 label_right_eye = None
 label_left_eye = None
 
-# Поля ввода
 entry_x = None
 entry_y = None
 
-# Флаг, который будет управлять видимостью графиков/трекеров.
 graphs_visible = True
 
-# --- Новые константы для размера отображаемой камеры ---
-DISPLAY_WIDTH = 1280
-DISPLAY_HEIGHT = 960
+# Размер окна
+SECOND_WINDOW_SIZE = "3000x1500"
+
+# Размер камеры (масштаб для отображения):
+DISPLAY_WIDTH = 2200
+DISPLAY_HEIGHT = 1400
 
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
@@ -114,8 +114,9 @@ def log_head_position(roll, pitch, yaw, nose_x, nose_y, direction):
             f.write(f"{timestamp},{roll:.2f},{pitch:.2f},{yaw:.2f},{nose_x},{nose_y},{direction}\n")
         last_log_time = current_time_local
 
+
 # ------------------------------
-# ФУНКЦИИ ПОДСЧЁТА УГЛОВ / МАТЕМАТИКА
+# МАТЕМАТИКА ДЛЯ ГОЛОВЫ / ЗРАЧКОВ
 # ------------------------------
 
 def get_euler_angles(rotation_matrix):
@@ -184,7 +185,6 @@ def calculate_pupil_position(inner_corner, outer_corner, pupil):
     pos = projection / eye_length
     return pos
 
-
 # ------------------------------
 # ФУНКЦИИ ДЛЯ ОТРИСОВКИ
 # ------------------------------
@@ -204,10 +204,11 @@ def create_eye_tracker2(norm_h, norm_v, eye_side="Right"):
     pos_y = int(base_y + norm_v * ((tracker_height // 2) - margin))
 
     cv2.circle(tracker, (pos_x, pos_y), 10, (255, 0, 0), -1)
-    cv2.putText(tracker, f"{eye_side} Eye", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-    cv2.putText(tracker, f"H:{norm_h:.2f} V:{norm_v:.2f}", (10, tracker_height - 10),
+    cv2.putText(tracker, f"{eye_side} Eye", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+    cv2.putText(tracker, f"H:{norm_h:.2f} V:{norm_v:.2f}",
+                (10, tracker_height - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-
     return tracker
 
 
@@ -220,7 +221,7 @@ def generate_new_plate(h_img, w_img):
 
 
 # ------------------------------
-# ОСНОВНАЯ ЛОГИКА ТРЕКА, ОБНОВЛЕНИЕ КАДРОВ
+# ОСНОВНАЯ ЛОГИКА КАДРА
 # ------------------------------
 
 def update_frame():
@@ -241,10 +242,11 @@ def update_frame():
     frame = cv2.flip(frame, 1)
     h, w = frame.shape[:2]
 
-    # Распознавание Mediapipe работает на оригинальном размере:
+    # Подготовка для Mediapipe
     image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = face_mesh.process(image_rgb)
 
+    # Генерация "тарелки" (пластинки) либо ручной ввод
     if manual_plate is not None:
         x_mp, y_mp = manual_plate
         current_plate = (x_mp, y_mp, 'left' if x_mp < w // 2 else 'right', False)
@@ -252,6 +254,7 @@ def update_frame():
     elif current_plate is None and cooldown == 0:
         current_plate = generate_new_plate(h, w)
 
+    # Если лицо обнаружено
     if results.multi_face_landmarks:
         landmarks = results.multi_face_landmarks[0].landmark
         roll, pitch, yaw = calculate_head_pose(landmarks, (h, w))
@@ -260,10 +263,12 @@ def update_frame():
         if len(yaw_history) > max_history:
             yaw_history.pop(0)
 
+        # Нос
         nose = landmarks[1]
         nose_coord = (int(nose.x * w), int(nose.y * h))
         cv2.circle(frame, nose_coord, 4, (0, 255, 255), -1)
 
+        # Направление (для лога)
         if yaw < -10:
             direction = "left"
         elif yaw > 10:
@@ -271,14 +276,18 @@ def update_frame():
         else:
             direction = "center"
 
+        # Логирование
         log_head_position(roll, pitch, yaw, nose_coord[0], nose_coord[1], direction)
 
+        # Активируем/сбрасываем тарелку
         if current_plate:
             x_cp, y_cp, pos_cp, _ = current_plate
-            if (pos_cp == 'left' and yaw < -ACTIVATION_ANGLE) or (pos_cp == 'right' and yaw > ACTIVATION_ANGLE):
+            if (pos_cp == 'left' and yaw < -ACTIVATION_ANGLE) or \
+               (pos_cp == 'right' and yaw > ACTIVATION_ANGLE):
                 current_plate = None
                 cooldown = COOLDOWN_FRAMES
 
+        # Рисуем стрелку (указатель yaw)
         length = 100
         angle_rad = math.radians(yaw)
         end_point = (nose_coord[0] + int(length * math.sin(angle_rad)), nose_coord[1])
@@ -287,7 +296,9 @@ def update_frame():
         alpha = 0.3
         cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-        # Глаза
+        # -------------------
+        # Обработка глаз
+        # -------------------
         right_inner = landmarks[133]
         right_outer = landmarks[33]
         right_pupil = landmarks[468]
@@ -312,9 +323,11 @@ def update_frame():
         cv2.circle(frame, lx_pupil, 3, (255, 0, 0), -1)
         cv2.line(frame, lx_inner, lx_outer, (0, 0, 255), 1)
 
+        # Горизонтальная позиция
         right_pupil_h = calculate_pupil_position(rx_inner, rx_outer, rx_pupil)
         left_pupil_h = calculate_pupil_position(lx_inner, lx_outer, lx_pupil)
 
+        # Вертикальная
         right_eye_upper = landmarks[159]
         right_eye_lower = landmarks[145]
         rx_upper = (int(right_eye_upper.x * w), int(right_eye_upper.y * h))
@@ -331,6 +344,7 @@ def update_frame():
         left_baseline = (lx_upper[1] + lx_lower[1]) / 2.0
         left_pupil_v = (lx_pupil[1] - left_baseline) / (eye_height_left if eye_height_left != 0 else 1)
 
+        # Выводим текст
         cv2.putText(frame, f"Right pos: {right_pupil_h:.2f}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, TEXT_COLOR, 2)
         cv2.putText(frame, f"Left pos: {left_pupil_h:.2f}", (10, 60),
@@ -342,16 +356,18 @@ def update_frame():
         cv2.putText(frame, f"Yaw: {yaw:.1f}", (w - 150, 90),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, TEXT_COLOR, 2)
 
+    # Тарелка
     if current_plate:
         x_cp, y_cp, _, _ = current_plate
         cv2.rectangle(frame, (x_cp, y_cp), (x_cp + PLATE_SIZE, y_cp + PLATE_SIZE), PLATE_COLOR, 3)
 
+    # Cooldown
     if cooldown > 0:
         cooldown -= 1
         cv2.putText(frame, f"Next: {cooldown // 10 + 1}", (w // 2 - 30, 50),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, TEXT_COLOR, 2)
 
-    # График Yaw
+    # График
     graph = np.ones((graph_height, graph_width, 3), dtype=np.uint8) * 255
     if len(yaw_history) > 1:
         for i in range(1, len(yaw_history)):
@@ -362,6 +378,7 @@ def update_frame():
             cv2.line(graph, (x1, y1), (x2, y2), (0, 0, 255), 2)
         cv2.putText(graph, "Yaw (deg)", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
 
+    # Трекер носа
     if neutral == (0, 0):
         neutral = (w // 2, h // 2)
 
@@ -381,18 +398,15 @@ def update_frame():
     right_eye_tracker = create_eye_tracker2(right_pupil_h, right_pupil_v, "Right")
     left_eye_tracker = create_eye_tracker2(left_pupil_h, left_pupil_v, "Left")
 
-    # --- Увеличиваем кадр для вывода (DISPLAY_WIDTH x DISPLAY_HEIGHT) ---
+    # Масштабируем кадр (камера)
     resized_frame = cv2.resize(frame, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
-
-    # Конвертируем в BGR -> PIL
     frame_bgr = cv2.cvtColor(resized_frame, cv2.COLOR_RGB2BGR)
     img_cam = Image.fromarray(frame_bgr)
     imgtk_cam = ImageTk.PhotoImage(image=img_cam)
     label_cam.config(image=imgtk_cam)
     label_cam.image = imgtk_cam
 
-    # Остальные изображения оставляем в исходном размере,
-    # но при желании их тоже можно увеличить (по аналогии):
+    # Преобразование остальных
     img_graph = Image.fromarray(graph)
     imgtk_graph = ImageTk.PhotoImage(image=img_graph)
     label_graph.config(image=imgtk_graph)
@@ -415,8 +429,9 @@ def update_frame():
 
     second_window.after(10, update_frame)
 
+
 # ------------------------------
-# ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ ОКНАМИ
+# УПРАВЛЕНИЕ ОКНАМИ
 # ------------------------------
 
 def add_square():
@@ -472,28 +487,35 @@ def start_test():
 
     second_window = tk.Toplevel(root)
     second_window.title("Окно испытания")
-    second_window.geometry("2200x1400")
+    # Окно 3000x1500
+    second_window.geometry(SECOND_WINDOW_SIZE)
 
-    for col in range(3):
-        second_window.grid_columnconfigure(col, weight=1)
+    # Два столбца: 0 - для камеры (большой), 1 - для графиков/трекеров
+    second_window.grid_columnconfigure(0, weight=3)  # основной большой столбец
+    second_window.grid_columnconfigure(1, weight=1)  # узкий столбец справа
 
-    label_graph = tk.Label(second_window)
-    label_graph.grid(row=0, column=0, padx=5, pady=5, sticky="n")
-
+    # Камера (большая), занимает несколько строк в столбце 0
     label_cam = tk.Label(second_window)
-    label_cam.grid(row=0, column=1, padx=5, pady=5, sticky="n")
+    label_cam.grid(row=0, column=0, rowspan=5, sticky="nsew", padx=5, pady=5)
 
+    # График (Yaw)
+    label_graph = tk.Label(second_window)
+    label_graph.grid(row=0, column=1, padx=5, pady=5, sticky="n")
+
+    # Трекер носа
     label_tracker = tk.Label(second_window)
-    label_tracker.grid(row=0, column=2, padx=5, pady=5, sticky="n")
+    label_tracker.grid(row=1, column=1, padx=5, pady=5, sticky="n")
 
+    # Трекеры глаз
     label_right_eye = tk.Label(second_window)
-    label_right_eye.grid(row=1, column=0, padx=5, pady=5, sticky="n")
+    label_right_eye.grid(row=2, column=1, padx=5, pady=5, sticky="n")
 
     label_left_eye = tk.Label(second_window)
-    label_left_eye.grid(row=1, column=1, padx=5, pady=5, sticky="n")
+    label_left_eye.grid(row=3, column=1, padx=5, pady=5, sticky="n")
 
+    # Фрейм для координат X,Y
     frm_sq = tk.Frame(second_window)
-    frm_sq.grid(row=2, column=0, columnspan=3, pady=5)
+    frm_sq.grid(row=4, column=1, padx=5, pady=5, sticky="n")
 
     tk.Label(frm_sq, text="X:").grid(row=0, column=0)
     entry_x = tk.Entry(frm_sq, width=10)
@@ -506,16 +528,18 @@ def start_test():
     btn_add_square = tk.Button(frm_sq, text="Add Square", command=add_square)
     btn_add_square.grid(row=2, column=0, columnspan=2, pady=5)
 
+    # Кнопки
     toggle_btn = tk.Button(second_window, text="Скрыть графики", command=toggle_graphs)
-    toggle_btn.grid(row=3, column=0, padx=5, pady=5)
+    toggle_btn.grid(row=5, column=1, padx=5, pady=5, sticky="nw")
 
     btn_finish = tk.Button(second_window, text="Закончить испытание", command=finish_test)
-    btn_finish.grid(row=3, column=1, padx=5, pady=5)
+    btn_finish.grid(row=5, column=1, padx=5, pady=5, sticky="ne")
 
     update_frame()
 
+
 # ------------------------------
-# СТАРТ ПРИЛОЖЕНИЯ
+# СТАРТОВОЕ ОКНО
 # ------------------------------
 
 if not os.path.exists(LOG_FILE):

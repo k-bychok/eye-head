@@ -11,6 +11,10 @@ git clone https://github.com/boraplyton/eyes-head
 python -m venv venv
 source venv/bin/activate
 ```
+3. Прописать 
+```bash
+pip install -r requirements.txt 
+```
 3. корневой папке создать папку `dataset`
 4. Запустить программу
 ```bash

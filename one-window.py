@@ -4,7 +4,10 @@ SECOND_WINDOW_SIZE задаёт габариты второго окна; все
 эти размеры.
 """
 
-import cv2, mediapipe as mp, numpy as np, random, math
+import cv2
+import mediapipe as mp
+import numpy as np
+import random, math
 import datetime, os, tkinter as tk
 from tkinter import messagebox
 from PIL import Image, ImageTk

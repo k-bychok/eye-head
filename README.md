@@ -9,13 +9,12 @@ git clone https://github.com/boraplyton/eyes-head
 2. Создать и активировать виртуильное окружение
 ```bash
 python -m venv venv
-source venv/bin/activate
+venv/Scripts/activate
 ```
 3. Прописать 
 ```bash
 pip install -r requirements.txt 
 ```
-3. корневой папке создать папку `dataset`
 4. Запустить программу
 ```bash
 python one_window.py
